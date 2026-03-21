@@ -9,6 +9,7 @@ import com.stockstream.repository.NewsArticleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -24,14 +25,31 @@ public class RSSFeedService {
     // ─── All RSS Feed URLs ───────────────────────
     private final List<String[]> RSS_FEEDS = List.of(
             // {url, category}
+            // ─── STOCKS (Indian) ────────────────────────
             new String[] { "https://economictimes.indiatimes.com/markets/rss.cms", "STOCKS" },
-            new String[] { "https://www.moneycontrol.com/rss/results.xml", "STOCKS" },
             new String[] { "https://feeds.feedburner.com/ndtvprofit-latest", "STOCKS" },
             new String[] { "https://www.business-standard.com/rss/markets-106.rss", "STOCKS" },
+
+            // ─── GLOBAL ─────────────────────────────────
             new String[] { "https://feeds.finance.yahoo.com/rss/2.0/headline", "GLOBAL" },
             new String[] { "https://feeds.reuters.com/reuters/businessNews", "GLOBAL" },
-            new String[] { "https://www.kitco.com/rss/news.rss", "GOLD" },
-            new String[] { "https://goldprice.org/feed", "GOLD" });
+            new String[] { "https://www.cnbc.com/id/100003114/device/rss/rss.html", "GLOBAL" },
+
+            // ─── COMMODITIES ────────────────────────────
+            new String[] { "https://www.kitco.com/rss/news.rss", "COMMODITIES" },
+            new String[] { "https://oilprice.com/rss/main", "COMMODITIES" },
+            new String[] { "https://feeds.reuters.com/reuters/commoditiesNews", "COMMODITIES" },
+
+            // ─── CRYPTO ─────────────────────────────────
+            new String[] { "https://cointelegraph.com/rss", "CRYPTO" },
+            new String[] { "https://www.coindesk.com/arc/outboundfeeds/rss/", "CRYPTO" },
+
+            // ─── TECH ───────────────────────────────────
+            new String[] { "https://techcrunch.com/feed/", "TECH" },
+
+            // ─── GENERAL ────────────────────────────────
+            new String[] { "http://feeds.bbci.co.uk/news/business/rss.xml", "GENERAL" },
+            new String[] { "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms", "GENERAL" });
 
     // ─── Fetch All Feeds ─────────────────────────
     public void fetchAndSaveAllFeeds() {
@@ -62,11 +80,16 @@ public class RSSFeedService {
     // ─── Fetch Single Feed ───────────────────────
     private List<NewsArticle> fetchSingleFeed(String feedUrl, String category) {
         List<NewsArticle> articles = new ArrayList<>();
-
         try {
+            // Add timeout — skip feed if takes more than 10 seconds
             URL url = new URL(feedUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(10000); // 10 seconds
+            connection.setReadTimeout(10000); // 10 seconds
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+
             SyndFeedInput input = new SyndFeedInput();
-            SyndFeed feed = input.build(new XmlReader(url));
+            SyndFeed feed = input.build(new XmlReader(connection.getInputStream()));
 
             for (SyndEntry entry : feed.getEntries()) {
                 try {
@@ -78,7 +101,6 @@ public class RSSFeedService {
                     article.setCategory(category);
                     article.setFetchedAt(LocalDateTime.now());
 
-                    // Set published date
                     if (entry.getPublishedDate() != null) {
                         article.setPublishedAt(entry.getPublishedDate()
                                 .toInstant()
@@ -88,19 +110,16 @@ public class RSSFeedService {
                         article.setPublishedAt(LocalDateTime.now());
                     }
 
-                    // Only add if URL is not null
                     if (article.getUrl() != null && !article.getUrl().isEmpty()) {
                         articles.add(article);
                     }
-
                 } catch (Exception e) {
                     System.out.println("Skipping entry: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
-            System.out.println("Error reading feed: " + feedUrl + " → " + e.getMessage());
+            System.out.println("Failed to fetch: " + feedUrl + " → " + e.getMessage());
         }
-
         return articles;
     }
 

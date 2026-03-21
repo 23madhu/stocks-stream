@@ -10,6 +10,7 @@ function App() {
   const [category, setCategory] = useState("ALL");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     loadBreaking();
   }, []);
 
@@ -134,7 +135,7 @@ function App() {
     borderLeft: "4px solid #e94560",
   };
 
-  const cats = ["ALL", "STOCKS", "GOLD", "GLOBAL"];
+  const cats = ["ALL", "STOCKS", "GLOBAL", "COMMODITIES", "CRYPTO", "TECH", "GENERAL"];
 
   return (
     <div style={{ fontFamily: "Arial, sans-serif", minHeight: "100vh", backgroundColor: "#f0f2f5" }}>
