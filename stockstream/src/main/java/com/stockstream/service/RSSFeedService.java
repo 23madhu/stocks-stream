@@ -8,6 +8,7 @@ import com.stockstream.model.NewsArticle;
 import com.stockstream.repository.NewsArticleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import java.net.HttpURLConnection;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -77,18 +78,17 @@ public class RSSFeedService {
         System.out.println("Total new articles saved: " + totalSaved);
     }
 
-    // ─── Fetch Single Feed ───────────────────────
     private List<NewsArticle> fetchSingleFeed(String feedUrl, String category) {
         List<NewsArticle> articles = new ArrayList<>();
         try {
-            // Add timeout — skip feed if takes more than 10 seconds
             URL url = new URL(feedUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000); // 10 seconds
-            connection.setReadTimeout(10000); // 10 seconds
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
             connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
             SyndFeedInput input = new SyndFeedInput();
+            input.setAllowDoctypes(true); // Fix DOCTYPE error for ET and other feeds
             SyndFeed feed = input.build(new XmlReader(connection.getInputStream()));
 
             for (SyndEntry entry : feed.getEntries()) {
@@ -96,7 +96,7 @@ public class RSSFeedService {
                     NewsArticle article = new NewsArticle();
                     article.setTitle(cleanText(entry.getTitle()));
                     article.setDescription(getDescription(entry));
-                    article.setUrl(entry.getLink());
+                    article.setUrl(cleanUrl(entry.getLink()));
                     article.setSource(feed.getTitle());
                     article.setCategory(category);
                     article.setFetchedAt(LocalDateTime.now());
@@ -117,6 +117,7 @@ public class RSSFeedService {
                     System.out.println("Skipping entry: " + e.getMessage());
                 }
             }
+            System.out.println("Fetched from: " + feedUrl + " → " + articles.size() + " articles");
         } catch (Exception e) {
             System.out.println("Failed to fetch: " + feedUrl + " → " + e.getMessage());
         }
@@ -147,6 +148,25 @@ public class RSSFeedService {
         if (text == null)
             return "";
         return text.replaceAll("<[^>]*>", "").trim();
+    }
+
+    private String cleanUrl(String url) {
+        if (url == null)
+            return null;
+        try {
+            if (url.contains("?")) {
+                url = url.substring(0, url.indexOf("?"));
+            }
+            if (url.contains("#")) {
+                url = url.substring(0, url.indexOf("#"));
+            }
+            if (url.endsWith("/")) {
+                url = url.substring(0, url.length() - 1);
+            }
+            return url.trim();
+        } catch (Exception e) {
+            return url;
+        }
     }
 
     // ─── Get Breaking News ───────────────────────
