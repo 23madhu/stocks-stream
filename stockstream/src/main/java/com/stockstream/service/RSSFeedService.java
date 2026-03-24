@@ -4,102 +4,180 @@ import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
-import com.stockstream.model.NewsArticle;
-import com.stockstream.repository.NewsArticleRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import java.net.HttpURLConnection;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class RSSFeedService {
 
-    @Autowired
-    private NewsArticleRepository newsArticleRepository;
+    // ─── All RSS Feed Sources ─────────────────────
+    private final String[][] RSS_FEEDS = {
+            // Indian Stock Market
+            { "https://economictimes.indiatimes.com/markets/rss.cms", "STOCKS" },
+            { "https://www.moneycontrol.com/rss/results.xml", "STOCKS" },
+            { "https://www.business-standard.com/rss/markets-106.rss", "STOCKS" },
+            { "https://feeds.feedburner.com/ndtvprofit-latest", "STOCKS" },
+            // Global Markets
+            { "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US", "GLOBAL" },
+            { "https://feeds.reuters.com/reuters/businessNews", "GLOBAL" },
+            { "https://www.cnbc.com/id/100003114/device/rss/rss.html", "GLOBAL" },
+            // Commodities
+            { "https://www.kitco.com/rss/kitco-news-gold.rss", "COMMODITIES" },
+            { "https://oilprice.com/rss/main", "COMMODITIES" },
+            { "https://feeds.reuters.com/reuters/commoditiesNews", "COMMODITIES" },
+            // Crypto
+            { "https://cointelegraph.com/rss", "CRYPTO" },
+            { "https://www.coindesk.com/arc/outboundfeeds/rss/", "CRYPTO" },
+            // Tech
+            { "https://techcrunch.com/feed/", "TECH" },
+            // General Business
+            { "https://timesofindia.indiatimes.com/rssfeeds/1898055.cms", "GENERAL" },
+            { "https://feeds.bbci.co.uk/news/business/rss.xml", "GENERAL" },
+    };
 
-    // ─── All RSS Feed URLs ───────────────────────
-    private final List<String[]> RSS_FEEDS = List.of(
-            // {url, category}
-            // ─── STOCKS (Indian) ────────────────────────
-            new String[] { "https://economictimes.indiatimes.com/markets/rss.cms", "STOCKS" },
-            new String[] { "https://feeds.feedburner.com/ndtvprofit-latest", "STOCKS" },
-            new String[] { "https://www.business-standard.com/rss/markets-106.rss", "STOCKS" },
+    // ─── Live Article Model (no DB entity) ───────
+    public static class LiveArticle {
+        private String title;
+        private String description;
+        private String url;
+        private String source;
+        private String category;
+        private LocalDateTime publishedAt;
 
-            // ─── GLOBAL ─────────────────────────────────
-            new String[] { "https://feeds.finance.yahoo.com/rss/2.0/headline", "GLOBAL" },
-            new String[] { "https://feeds.reuters.com/reuters/businessNews", "GLOBAL" },
-            new String[] { "https://www.cnbc.com/id/100003114/device/rss/rss.html", "GLOBAL" },
+        public String getTitle() {
+            return title;
+        }
 
-            // ─── COMMODITIES ────────────────────────────
-            new String[] { "https://www.kitco.com/rss/news.rss", "COMMODITIES" },
-            new String[] { "https://oilprice.com/rss/main", "COMMODITIES" },
-            new String[] { "https://feeds.reuters.com/reuters/commoditiesNews", "COMMODITIES" },
+        public void setTitle(String v) {
+            this.title = v;
+        }
 
-            // ─── CRYPTO ─────────────────────────────────
-            new String[] { "https://cointelegraph.com/rss", "CRYPTO" },
-            new String[] { "https://www.coindesk.com/arc/outboundfeeds/rss/", "CRYPTO" },
+        public String getDescription() {
+            return description;
+        }
 
-            // ─── TECH ───────────────────────────────────
-            new String[] { "https://techcrunch.com/feed/", "TECH" },
+        public void setDescription(String v) {
+            this.description = v;
+        }
 
-            // ─── GENERAL ────────────────────────────────
-            new String[] { "http://feeds.bbci.co.uk/news/business/rss.xml", "GENERAL" },
-            new String[] { "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms", "GENERAL" });
+        public String getUrl() {
+            return url;
+        }
 
-    // ─── Fetch All Feeds ─────────────────────────
-    public void fetchAndSaveAllFeeds() {
-        System.out.println("Starting RSS feed fetch...");
-        int totalSaved = 0;
+        public void setUrl(String v) {
+            this.url = v;
+        }
+
+        public String getSource() {
+            return source;
+        }
+
+        public void setSource(String v) {
+            this.source = v;
+        }
+
+        public String getCategory() {
+            return category;
+        }
+
+        public void setCategory(String v) {
+            this.category = v;
+        }
+
+        public LocalDateTime getPublishedAt() {
+            return publishedAt;
+        }
+
+        public void setPublishedAt(LocalDateTime v) {
+            this.publishedAt = v;
+        }
+    }
+
+    // ─── Fetch ALL feeds live ─────────────────────
+    // Called every time frontend requests breaking news
+    public List<LiveArticle> fetchAllLive() {
+        List<LiveArticle> allArticles = new ArrayList<>();
 
         for (String[] feed : RSS_FEEDS) {
             String feedUrl = feed[0];
             String category = feed[1];
-
             try {
-                List<NewsArticle> articles = fetchSingleFeed(feedUrl, category);
-                for (NewsArticle article : articles) {
-                    // Skip if already exists in database
-                    if (!newsArticleRepository.existsByUrl(article.getUrl())) {
-                        newsArticleRepository.save(article);
-                        totalSaved++;
-                    }
-                }
-                System.out.println("Fetched from: " + feedUrl + " → " + articles.size() + " articles");
+                List<LiveArticle> articles = fetchSingleFeed(feedUrl, category);
+                allArticles.addAll(articles);
+                System.out.println("Fetched " + articles.size() + " from: " + feedUrl);
             } catch (Exception e) {
-                System.out.println("Failed to fetch: " + feedUrl + " → " + e.getMessage());
+                System.out.println("Failed: " + feedUrl + " → " + e.getMessage());
             }
         }
-        System.out.println("Total new articles saved: " + totalSaved);
+
+        // Sort by newest first
+        allArticles.sort((a, b) -> {
+            if (a.getPublishedAt() == null)
+                return 1;
+            if (b.getPublishedAt() == null)
+                return -1;
+            return b.getPublishedAt().compareTo(a.getPublishedAt());
+        });
+
+        // Remove duplicates by URL
+        Set<String> seen = new HashSet<>();
+        List<LiveArticle> unique = new ArrayList<>();
+        for (LiveArticle a : allArticles) {
+            if (a.getUrl() != null && seen.add(a.getUrl())) {
+                unique.add(a);
+            }
+        }
+
+        System.out.println("Total live articles: " + unique.size());
+        return unique;
     }
 
-    private List<NewsArticle> fetchSingleFeed(String feedUrl, String category) {
-        List<NewsArticle> articles = new ArrayList<>();
+    // ─── Fetch by category ────────────────────────
+    public List<LiveArticle> fetchByCategory(String category) {
+        List<LiveArticle> result = new ArrayList<>();
+        for (String[] feed : RSS_FEEDS) {
+            if (feed[1].equalsIgnoreCase(category)) {
+                result.addAll(fetchSingleFeed(feed[0], feed[1]));
+            }
+        }
+        result.sort((a, b) -> {
+            if (a.getPublishedAt() == null)
+                return 1;
+            if (b.getPublishedAt() == null)
+                return -1;
+            return b.getPublishedAt().compareTo(a.getPublishedAt());
+        });
+        return result;
+    }
+
+    // ─── Fetch single RSS feed ────────────────────
+    private List<LiveArticle> fetchSingleFeed(String feedUrl, String category) {
+        List<LiveArticle> articles = new ArrayList<>();
         try {
             URL url = new URL(feedUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
+            connection.setConnectTimeout(8000);
+            connection.setReadTimeout(8000);
             connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
             SyndFeedInput input = new SyndFeedInput();
-            input.setAllowDoctypes(true); // Fix DOCTYPE error for ET and other feeds
+            input.setAllowDoctypes(true);
             SyndFeed feed = input.build(new XmlReader(connection.getInputStream()));
 
             for (SyndEntry entry : feed.getEntries()) {
                 try {
-                    NewsArticle article = new NewsArticle();
+                    LiveArticle article = new LiveArticle();
                     article.setTitle(cleanText(entry.getTitle()));
                     article.setDescription(getDescription(entry));
                     article.setUrl(cleanUrl(entry.getLink()));
                     article.setSource(feed.getTitle());
                     article.setCategory(category);
-                    article.setFetchedAt(LocalDateTime.now());
 
                     if (entry.getPublishedDate() != null) {
                         article.setPublishedAt(entry.getPublishedDate()
@@ -110,72 +188,53 @@ public class RSSFeedService {
                         article.setPublishedAt(LocalDateTime.now());
                     }
 
-                    if (article.getUrl() != null && !article.getUrl().isEmpty()) {
+                    if (article.getUrl() != null && !article.getUrl().isEmpty()
+                            && article.getTitle() != null && !article.getTitle().isEmpty()) {
                         articles.add(article);
                     }
                 } catch (Exception e) {
-                    System.out.println("Skipping entry: " + e.getMessage());
+                    // skip bad entry
                 }
             }
-            System.out.println("Fetched from: " + feedUrl + " → " + articles.size() + " articles");
         } catch (Exception e) {
-            System.out.println("Failed to fetch: " + feedUrl + " → " + e.getMessage());
+            System.out.println("Feed error [" + feedUrl + "]: " + e.getMessage());
         }
         return articles;
     }
 
-    // ─── Helper: Get Description ─────────────────
-    private String getDescription(SyndEntry entry) {
-        try {
-            if (entry.getDescription() != null) {
-                String desc = entry.getDescription().getValue();
-                // Remove HTML tags
-                desc = desc.replaceAll("<[^>]*>", "");
-                // Limit to 500 characters
-                if (desc.length() > 500) {
-                    desc = desc.substring(0, 500) + "...";
-                }
-                return desc;
-            }
-        } catch (Exception e) {
-            return "";
-        }
-        return "";
-    }
-
-    // ─── Helper: Clean Text ──────────────────────
+    // ─── Helpers ──────────────────────────────────
     private String cleanText(String text) {
         if (text == null)
             return "";
         return text.replaceAll("<[^>]*>", "").trim();
     }
 
+    private String getDescription(SyndEntry entry) {
+        try {
+            if (entry.getDescription() != null) {
+                return cleanText(entry.getDescription().getValue());
+            }
+            if (entry.getContents() != null && !entry.getContents().isEmpty()) {
+                return cleanText(entry.getContents().get(0).getValue());
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     private String cleanUrl(String url) {
         if (url == null)
             return null;
         try {
-            if (url.contains("?")) {
+            if (url.contains("?"))
                 url = url.substring(0, url.indexOf("?"));
-            }
-            if (url.contains("#")) {
+            if (url.contains("#"))
                 url = url.substring(0, url.indexOf("#"));
-            }
-            if (url.endsWith("/")) {
+            if (url.endsWith("/"))
                 url = url.substring(0, url.length() - 1);
-            }
             return url.trim();
         } catch (Exception e) {
             return url;
         }
-    }
-
-    // ─── Get Breaking News ───────────────────────
-    public List<NewsArticle> getBreakingNews() {
-        return newsArticleRepository.findTop20ByOrderByPublishedAtDesc();
-    }
-
-    // ─── Get News by Category ────────────────────
-    public List<NewsArticle> getNewsByCategory(String category) {
-        return newsArticleRepository.findByCategoryOrderByPublishedAtDesc(category);
     }
 }

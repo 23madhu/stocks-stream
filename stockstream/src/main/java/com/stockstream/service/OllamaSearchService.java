@@ -2,8 +2,6 @@ package com.stockstream.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.stockstream.model.NewsArticle;
-import com.stockstream.repository.NewsArticleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -12,13 +10,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class OllamaSearchService {
-
-    @Autowired
-    private NewsArticleRepository newsArticleRepository;
 
     @Value("${ollama.api.url}")
     private String ollamaUrl;
@@ -26,41 +23,23 @@ public class OllamaSearchService {
     @Value("${ollama.model}")
     private String ollamaModel;
 
+    @Autowired
+    private RSSFeedService rssFeedService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
-    // ─── Main Search Method ──────────────────────
-    public List<NewsArticle> search(String userQuery) {
-        System.out.println("User searched: " + userQuery);
-
-        // Step 1: Extract keyword using Ollama AI
-        String keyword = extractKeyword(userQuery);
-        System.out.println("Extracted keyword: " + keyword);
-
-        // Step 2: Search database with extracted keyword
-        List<NewsArticle> results = newsArticleRepository.searchByKeyword(keyword);
-
-        // Step 3: If no results found with AI keyword, use original query
-        if (results.isEmpty()) {
-            results = newsArticleRepository.searchByKeyword(userQuery);
-        }
-
-        System.out.println("Search results found: " + results.size());
-        return results;
-    }
-
-    // ─── Extract Keyword Using Ollama ────────────
-    private String extractKeyword(String userQuery) {
+    public List<RSSFeedService.LiveArticle> search(String userQuery) {
         try {
-            String prompt = "Extract the main stock market or financial topic keyword from this search query. " +
-                    "Return ONLY the keyword, nothing else. No explanation. " +
-                    "Examples: 'latest news about gold' → 'gold', " +
-                    "'what is happening with ITC stock' → 'ITC', " +
-                    "'silver price today' → 'silver'. " +
-                    "Query: '" + userQuery + "'";
+            // Step 1: Extract keyword using Ollama
+            String prompt = """
+                    Extract the most important single search keyword from this query.
+                    Return ONLY the keyword, nothing else.
+                    Query: "%s"
+                    """.formatted(userQuery);
 
             String requestBody = objectMapper.writeValueAsString(
-                    new java.util.HashMap<>() {
+                    new HashMap<String, Object>() {
                         {
                             put("model", ollamaModel);
                             put("prompt", prompt);
@@ -75,19 +54,47 @@ public class OllamaSearchService {
                     .build();
 
             HttpResponse<String> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString());
+                    request, HttpResponse.BodyHandlers.ofString());
 
             JsonNode jsonNode = objectMapper.readTree(response.body());
-            String keyword = jsonNode.get("response").asText().trim();
+            String keyword = jsonNode.get("response").asText().trim()
+                    .replace("\"", "").replace(".", "").toLowerCase();
 
-            // Clean up keyword — remove quotes and extra spaces
-            keyword = keyword.replaceAll("[\"']", "").trim();
-            return keyword;
+            System.out.println("Search keyword extracted: " + keyword);
+
+            // Step 2: Fetch live articles and filter by keyword
+            List<RSSFeedService.LiveArticle> allArticles = rssFeedService.fetchAllLive();
+
+            final String kw = keyword;
+            List<RSSFeedService.LiveArticle> filtered = allArticles.stream()
+                    .filter(a -> {
+                        String title = a.getTitle() != null ? a.getTitle().toLowerCase() : "";
+                        String desc = a.getDescription() != null ? a.getDescription().toLowerCase() : "";
+                        return title.contains(kw) || desc.contains(kw);
+                    })
+                    .collect(Collectors.toList());
+
+            // If no results with AI keyword, try original query words
+            if (filtered.isEmpty()) {
+                String[] words = userQuery.toLowerCase().split("\\s+");
+                filtered = allArticles.stream()
+                        .filter(a -> {
+                            String title = a.getTitle() != null ? a.getTitle().toLowerCase() : "";
+                            for (String word : words) {
+                                if (word.length() > 3 && title.contains(word))
+                                    return true;
+                            }
+                            return false;
+                        })
+                        .collect(Collectors.toList());
+            }
+
+            System.out.println("Search results: " + filtered.size() + " articles for: " + keyword);
+            return filtered;
 
         } catch (Exception e) {
-            System.out.println("Ollama error: " + e.getMessage() + " — using original query");
-            return userQuery;
+            System.out.println("Search error: " + e.getMessage());
+            return rssFeedService.fetchAllLive();
         }
     }
 }

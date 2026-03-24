@@ -1,14 +1,11 @@
 package com.stockstream.controller;
 
-import com.stockstream.model.NewsArticle;
 import com.stockstream.service.MarketDataService;
 import com.stockstream.service.NewsAnalysisService;
 import com.stockstream.service.OllamaSearchService;
 import com.stockstream.service.RSSFeedService;
 import com.stockstream.service.StockImpactService;
 import com.stockstream.service.StockResearchService;
-import com.stockstream.service.NewsAnalysisService;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,46 +19,35 @@ public class NewsController {
 
     @Autowired
     private RSSFeedService rssFeedService;
-
     @Autowired
     private OllamaSearchService ollamaSearchService;
-
     @Autowired
     private StockImpactService stockImpactService;
-
     @Autowired
     private MarketDataService marketDataService;
-
     @Autowired
     private NewsAnalysisService newsAnalysisService;
-
     @Autowired
     private StockResearchService stockResearchService;
 
-    // ─── Breaking News ────────────────────────────
+    // ─── Breaking News — live from RSS ────────────
     @GetMapping("/breaking")
-    public ResponseEntity<List<NewsArticle>> getBreakingNews() {
-        return ResponseEntity.ok(rssFeedService.getBreakingNews());
+    public ResponseEntity<List<RSSFeedService.LiveArticle>> getBreakingNews() {
+        return ResponseEntity.ok(rssFeedService.fetchAllLive());
     }
 
-    // ─── Search with AI ───────────────────────────
+    // ─── Search — live RSS + AI keyword ──────────
     @GetMapping("/search")
-    public ResponseEntity<List<NewsArticle>> searchNews(@RequestParam String q) {
+    public ResponseEntity<List<RSSFeedService.LiveArticle>> searchNews(
+            @RequestParam String q) {
         return ResponseEntity.ok(ollamaSearchService.search(q));
     }
 
-    // ─── Filter by Category ───────────────────────
+    // ─── Category — live RSS filter ───────────────
     @GetMapping("/category/{category}")
-    public ResponseEntity<List<NewsArticle>> getByCategory(@PathVariable String category) {
-        return ResponseEntity.ok(
-                rssFeedService.getNewsByCategory(category.toUpperCase()));
-    }
-
-    // ─── Manual News Fetch ────────────────────────
-    @PostMapping("/fetch")
-    public ResponseEntity<String> fetchNewsNow() {
-        new Thread(() -> rssFeedService.fetchAndSaveAllFeeds()).start();
-        return ResponseEntity.ok("News fetch triggered!");
+    public ResponseEntity<List<RSSFeedService.LiveArticle>> getByCategory(
+            @PathVariable String category) {
+        return ResponseEntity.ok(rssFeedService.fetchByCategory(category.toUpperCase()));
     }
 
     // ─── Stock Impact Analysis ────────────────────
@@ -77,32 +63,30 @@ public class NewsController {
         return ResponseEntity.ok(marketDataService.getTickerData());
     }
 
-    // ─── Last Market Update Time ──────────────────
+    // ─── Market Last Updated ──────────────────────
     @GetMapping("/market/lastupdated")
     public ResponseEntity<String> getLastUpdated() {
         return ResponseEntity.ok(marketDataService.getLastUpdated());
     }
 
-    // ─── Manual Market Refresh ────────────────────
+    // ─── Market Refresh ───────────────────────────
     @PostMapping("/market/refresh")
     public ResponseEntity<String> refreshMarketData() {
         new Thread(() -> marketDataService.fetchMarketData()).start();
-        return ResponseEntity.ok("Market refresh started — takes about 15 seconds");
+        return ResponseEntity.ok("Market refresh started");
     }
 
-    // ─── Full 360° News Analysis ──────────────────
-    // URL: GET http://localhost:8080/api/news/analyze?q=L&T reassures markets
+    // ─── Full 360 News Analysis ───────────────────
     @GetMapping("/analyze")
     public ResponseEntity<NewsAnalysisService.NewsAnalysis> analyzeNews(
             @RequestParam String q) {
-        System.out.println("Full 360 analysis for: " + q);
         return ResponseEntity.ok(newsAnalysisService.analyzeNews(q));
     }
 
+    // ─── Stock Deep Dive Research ─────────────────
     @GetMapping("/research")
     public ResponseEntity<StockResearchService.StockResearch> researchStock(
             @RequestParam String stock) {
-        System.out.println("Researching stock: " + stock);
         return ResponseEntity.ok(stockResearchService.researchStock(stock));
     }
 }

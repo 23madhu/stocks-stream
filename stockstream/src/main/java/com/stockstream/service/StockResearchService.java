@@ -26,7 +26,7 @@ public class StockResearchService {
     private String ollamaModel;
 
     @Autowired
-    private NewsArticleRepository newsArticleRepository;
+    private RSSFeedService rssFeedService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
@@ -34,8 +34,12 @@ public class StockResearchService {
     public StockResearch researchStock(String stockName) {
         try {
             // Fetch recent news from Oracle DB
-            List<NewsArticle> recentNews = newsArticleRepository
-                    .searchByKeyword(stockName);
+            List<RSSFeedService.LiveArticle> recentNews = rssFeedService.fetchAllLive()
+                    .stream()
+                    .filter(a -> a.getTitle() != null &&
+                            a.getTitle().toLowerCase().contains(stockName.toLowerCase()))
+                    .limit(8)
+                    .collect(java.util.stream.Collectors.toList());
 
             // Build news context for AI
             StringBuilder newsContext = new StringBuilder();
@@ -154,7 +158,7 @@ public class StockResearchService {
 
             // Add recent news from DB
             List<NewsItem> newsItems = new ArrayList<>();
-            for (NewsArticle article : recentNews) {
+            for (RSSFeedService.LiveArticle article : recentNews) {
                 if (newsItems.size() >= 8)
                     break;
                 NewsItem item = new NewsItem();
